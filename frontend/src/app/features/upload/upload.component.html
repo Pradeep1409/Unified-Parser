@@ -43,7 +43,7 @@
           <div class="space-y-2">
             <label class="block text-sm font-medium text-slate-400">Document (PDF/DOCX)</label>
             <div class="relative group/file">
-              <input type="file" (change)="onFileSelected($event)"
+              <input type="file" (change)="onFileSelected($event)" multiple
                 class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
               <div
                 class="border-2 border-dashed border-slate-700 group-hover/file:border-indigo-500/50 rounded-2xl p-8 text-center transition-all bg-slate-900/50 hover:bg-slate-800/50">
@@ -64,6 +64,15 @@
                       clip-rule="evenodd" />
                   </svg>
                   <span class="truncate max-w-[200px]">{{ selectedFile.name }}</span>
+                </div>
+                <div *ngIf="isBatchMode && selectedFiles.length > 0"
+                  class="text-indigo-400 font-medium flex items-center justify-center gap-2 text-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span class="truncate max-w-[200px]">{{ selectedFiles.length }} files selected</span>
                 </div>
               </div>
             </div>
@@ -155,9 +164,9 @@
 
           <!-- Action Area -->
           <div class="pt-2">
-            <button (click)="onUpload()" [disabled]="!selectedFile || isLoading"
+            <button (click)="onUpload()" [disabled]="(!selectedFile && !selectedFiles.length) || isLoading"
               class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center gap-2">
-              <span *ngIf="!isLoading">Run Parser</span>
+              <span *ngIf="!isLoading">Run {{ isBatchMode ? 'Batch' : '' }} Parser</span>
               <span *ngIf="isLoading" class="animate-pulse">Processing...</span>
             </button>
           </div>
@@ -172,8 +181,48 @@
               <div class="h-full bg-indigo-500 transition-all duration-300 ease-out" [style.width.%]="progress"></div>
             </div>
             <div class="text-[10px] text-slate-600 text-center">
-              Analyzing document structure and extracting tokens...
+              {{ isBatchMode ? 'Processing multi-document batch...' : 'Analyzing document structure and extracting
+              tokens...' }}
             </div>
+          </div>
+
+          <!-- Batch Results Summary -->
+          <div *ngIf="batchResults.length > 0 && !isLoading"
+            class="space-y-4 pt-4 border-t border-slate-800 animate-in slide-in-from-bottom-2 duration-500">
+            <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest pl-1">Batch Progress</h3>
+            <div class="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+              <div *ngFor="let res of batchResults; let i = index" (click)="viewBatchResult(i)"
+                class="p-3 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 group"
+                [class.bg-slate-800]="response === res" [class.bg-slate-900/50]="response !== res"
+                [class.border-indigo-500/30]="response === res" [class.border-slate-800]="response !== res">
+                <div class="flex items-center gap-2 overflow-hidden">
+                  <div
+                    class="h-6 w-6 rounded bg-slate-800 flex items-center justify-center text-[10px] text-slate-500 group-hover:text-indigo-400 transition-colors">
+                    {{ i+1 }}
+                  </div>
+                  <span class="text-xs text-slate-300 truncate font-medium">{{ res.filename }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <div *ngIf="!res.error"
+                    class="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                  <div *ngIf="res.error" class="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
+                  </div>
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-slate-600 group-hover:text-slate-400"
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            <button (click)="downloadAllZip()"
+              class="w-full py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all flex items-center justify-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download All (ZIP)
+            </button>
           </div>
 
         </div>
@@ -190,7 +239,7 @@
             <button (click)="setActiveTab('preview')"
               class="pb-3 text-sm font-bold uppercase tracking-wider transition-colors relative whitespace-nowrap focus:outline-none"
               [class.text-indigo-400]="activeTab === 'preview'" [class.text-slate-500]="activeTab !== 'preview'">
-              Markdown
+              {{ isBatchMode ? 'File Review' : 'Markdown' }}
               <div *ngIf="activeTab === 'preview'"
                 class="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]"></div>
             </button>
@@ -199,6 +248,13 @@
               [class.text-indigo-400]="activeTab === 'chunks'" [class.text-slate-500]="activeTab !== 'chunks'">
               Analysis
               <div *ngIf="activeTab === 'chunks'"
+                class="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]"></div>
+            </button>
+            <button *ngIf="batchResults.length > 0" (click)="setActiveTab('analytics')"
+              class="pb-3 text-sm font-bold uppercase tracking-wider transition-colors relative whitespace-nowrap focus:outline-none"
+              [class.text-indigo-400]="activeTab === 'analytics'" [class.text-slate-500]="activeTab !== 'analytics'">
+              Global Stats
+              <div *ngIf="activeTab === 'analytics'"
                 class="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]"></div>
             </button>
             <button (click)="setActiveTab('raw')"
@@ -290,29 +346,120 @@
             </div>
 
             <!-- Enhanced Loading View -->
-            <div *ngIf="!response && isLoading"
+            <div *ngIf="isLoading"
               class="h-full flex flex-col items-center justify-center p-8 text-center bg-slate-900/20 font-sans">
               <div class="space-y-6 w-full max-w-sm">
                 <div class="flex justify-center">
-                  <div class="relative w-12 h-12">
+                  <div class="relative w-16 h-16">
                     <div class="absolute inset-0 border-4 border-slate-800 rounded-full"></div>
-                    <div class="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin"></div>
+                    <div
+                      class="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin shadow-[0_0_15px_rgba(99,102,241,0.4)]">
+                    </div>
                   </div>
                 </div>
-                <h3 class="text-md font-bold text-indigo-400 animate-pulse uppercase tracking-widest text-[11px]">
-                  Processing structure...</h3>
+                <div class="space-y-2">
+                  <h3 class="text-md font-bold text-white uppercase tracking-widest text-[11px]">
+                    {{ isBatchMode ? 'Batch Processing Underway' : 'Processing document...' }}
+                  </h3>
+                  <p *ngIf="isBatchMode" class="text-[10px] text-indigo-400 font-mono">
+                    {{ processedCount }} of {{ totalFiles }} files parsed
+                  </p>
+                </div>
+                <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden w-full max-w-[200px] mx-auto">
+                  <div class="h-full bg-indigo-500 transition-all duration-300 shadow-[0_0_10px_rgba(99,102,241,0.6)]"
+                    [style.width.%]="progress"></div>
+                </div>
               </div>
             </div>
 
             <!-- Results Layout -->
-            <div *ngIf="response" class="h-full overflow-auto custom-scrollbar bg-slate-900/10">
+            <div *ngIf="response && !isLoading" class="h-full overflow-auto custom-scrollbar bg-slate-900/10">
+
+              <!-- Global Analytics Dashboard -->
+              <div *ngIf="activeTab === 'analytics'"
+                class="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div class="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-2">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Files</span>
+                    <div class="text-3xl font-extrabold text-indigo-400">{{ getGlobalAnalytics().totalFiles }}</div>
+                  </div>
+                  <div class="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-2">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Global Tokens</span>
+                    <div class="text-3xl font-extrabold text-purple-400">{{ getGlobalAnalytics().totalTokens | number }}
+                    </div>
+                  </div>
+                  <div class="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-2">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Chunks</span>
+                    <div class="text-3xl font-extrabold text-blue-400">{{ getGlobalAnalytics().totalChunks | number }}
+                    </div>
+                  </div>
+                  <div class="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-2">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Avg Complexity</span>
+                    <div class="text-3xl font-extrabold text-amber-400">{{ getGlobalAnalytics().avgComplexity }}/10
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Detailed Table View of Results -->
+                <div class="bg-slate-950 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="border-b border-slate-800 bg-slate-900/50">
+                        <th class="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Filename
+                        </th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tokens</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Chunks</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-900">
+                      <tr *ngFor="let res of batchResults; let i = index"
+                        class="hover:bg-slate-900/20 transition-colors group">
+                        <td class="px-6 py-4">
+                          <div class="text-sm font-medium text-slate-300 truncate max-w-[200px]">{{ res.filename }}
+                          </div>
+                        </td>
+                        <td class="px-6 py-4">
+                          <span class="text-xs font-mono text-indigo-400">{{ res.analytics?.total_tokens }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                          <span class="text-xs font-mono text-slate-400">{{ res.analytics?.chunk_count }}</span>
+                        </td>
+                        <td class="px-6 py-4">
+                          <div class="flex items-center gap-2">
+                            <button (click)="viewBatchResult(i); setActiveTab('preview')"
+                              class="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-white hover:border-indigo-500/50 transition-all">
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                            </button>
+                            <button (click)="downloadJson('raw', res)"
+                              class="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-white transition-all">
+                              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
               <!-- Premium Mono-Spaced Markdown View -->
-              <div *ngIf="activeTab === 'preview'" class="p-6 md:p-8">
+              <div *ngIf="activeTab === 'preview'" class="p-6 md:p-8 animate-in zoom-in-95 duration-500">
                 <div class="p-6 md:p-10 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl relative group">
                   <div
                     class="absolute top-4 right-6 text-[10px] text-slate-600 font-bold uppercase tracking-widest pointer-events-none">
-                    Markdown Output</div>
+                    {{ response.filename || 'Markdown Output' }}</div>
                   <div class="prose prose-invert max-w-none">
                     <pre
                       class="font-mono text-[13px] md:text-sm text-slate-300 whitespace-pre-wrap leading-relaxed bg-transparent p-0 border-none">{{ response.markdown }}</pre>
@@ -321,8 +468,11 @@
               </div>
 
               <!-- Analysis View (Chunks) -->
-              <div *ngIf="activeTab === 'chunks'" class="p-6 space-y-4">
-                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Extracted Segments</h3>
+              <div *ngIf="activeTab === 'chunks'" class="p-6 space-y-4 animate-in slide-in-from-right-4 duration-500">
+                <div class="flex justify-between items-center px-1">
+                  <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest">Extracted Segments</h3>
+                  <span class="text-[10px] font-mono text-indigo-400">{{ response.filename }}</span>
+                </div>
                 <div class="grid grid-cols-1 gap-4">
                   <div *ngFor="let chunk of response.chunks; let i = index"
                     class="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-indigo-500/30 transition-all group shadow-sm">
@@ -331,8 +481,8 @@
                         <span
                           class="h-6 w-6 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-[10px] font-bold border border-indigo-500/20">#{{
                           i + 1 }}</span>
-                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{{ chunk.type ||
-                          'text' }}</span>
+                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{{ (chunk.type ||
+                          'text') }}</span>
                       </div>
                       <span
                         class="text-[10px] font-mono text-slate-600 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">{{
@@ -345,7 +495,7 @@
               </div>
 
               <!-- Raw JSON View -->
-              <div *ngIf="activeTab === 'raw'" class="h-full flex flex-col min-h-0">
+              <div *ngIf="activeTab === 'raw'" class="h-full flex flex-col min-h-0 animate-in fade-in duration-300">
                 <div class="flex-none p-4 flex justify-between items-center border-b border-slate-800/50">
                   <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-4">Complete API
                     Response</span>

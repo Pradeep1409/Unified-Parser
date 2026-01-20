@@ -3,6 +3,8 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 export interface ParseResponse {
+    filename?: string;
+    error?: string;
     markdown: string;
     chunks: any[];
     analytics?: {
@@ -20,7 +22,7 @@ export interface ParseResponse {
     providedIn: 'root'
 })
 export class ParserService {
-    private apiUrl = 'http://localhost:8000/api/parse';
+    private apiUrl = 'http://localhost:8000/api';
 
     constructor(private http: HttpClient) { }
 
@@ -31,6 +33,20 @@ export class ParserService {
         formData.append('is_independent_pages', isIndependent.toString());
         formData.append('chunking_strategy', chunkingStrategy);
 
-        return this.http.post<ParseResponse>(this.apiUrl, formData);
+        return this.http.post<ParseResponse>(`${this.apiUrl}/parse`, formData);
+    }
+
+    parseBatch(files: File[], strategy: string = 'auto', isIndependent: boolean = true, chunkingStrategy: string = 'semantic'): Observable<ParseResponse[]> {
+        const formData = new FormData();
+        files.forEach(file => formData.append('files', file));
+        formData.append('strategy', strategy);
+        formData.append('is_independent_pages', isIndependent.toString());
+        formData.append('chunking_strategy', chunkingStrategy);
+
+        return this.http.post<ParseResponse[]>(`${this.apiUrl}/parse-batch`, formData);
+    }
+
+    downloadZip(results: ParseResponse[]): Observable<Blob> {
+        return this.http.post(`${this.apiUrl}/download-zip`, results, { responseType: 'blob' });
     }
 }

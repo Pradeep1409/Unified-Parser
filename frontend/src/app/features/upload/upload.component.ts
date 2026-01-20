@@ -17,10 +17,14 @@ export class UploadComponent implements OnDestroy {
     @ViewChild('mdViewer') mdViewer!: ElementRef;
 
     selectedFile: File | null = null;
+    selectedFiles: File[] = [];
+    isBatchMode: boolean = false;
+
     strategy: string = 'auto';
     isIndependentPages: boolean = true;
     isLoading: boolean = false;
     response: ParseResponse | null = null;
+    batchResults: ParseResponse[] = [];
     activeTab: 'preview' | 'raw' | 'chunks' | 'analytics' = 'preview';
     showCompareModal: boolean = false;
     isSyncing: boolean = false; // Prevent infinite loop
@@ -34,43 +38,62 @@ export class UploadComponent implements OnDestroy {
     chunkingStrategy: string = 'semantic'; // semantic, fixed, none
     pdfUrl: string | null = null;
 
+    // Batch specific
+    processedCount: number = 0;
+    totalFiles: number = 0;
+
     constructor(private parserService: ParserService, private sanitizer: DomSanitizer) { }
 
     onFileSelected(event: any) {
-        this.selectedFile = event.target.files[0];
-        if (this.selectedFile && this.selectedFile.type === 'application/pdf') {
-            this.pdfUrl = window.URL.createObjectURL(this.selectedFile);
-        } else {
+        const files = event.target.files;
+        if (files.length > 1) {
+            this.isBatchMode = true;
+            this.selectedFiles = Array.from(files);
+            this.selectedFile = null;
             this.pdfUrl = null;
+        } else if (files.length === 1) {
+            this.isBatchMode = false;
+            this.selectedFile = files[0];
+            this.selectedFiles = [];
+            if (this.selectedFile && this.selectedFile.type === 'application/pdf') {
+                this.pdfUrl = window.URL.createObjectURL(this.selectedFile);
+            } else {
+                this.pdfUrl = null;
+            }
         }
     }
 
     reset() {
         if (this.pdfUrl) window.URL.revokeObjectURL(this.pdfUrl);
         this.selectedFile = null;
+        this.selectedFiles = [];
+        this.isBatchMode = false;
         this.pdfUrl = null;
         this.response = null;
+        this.batchResults = [];
         this.progress = 0;
         this.estimatedTimeRemaining = 0;
         this.isLoading = false;
+        this.processedCount = 0;
+        this.totalFiles = 0;
         this.stopProgressSimulation();
-        // Reset file input in DOM if needed or rely on *ngIf to unmount
         const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
         if (fileInput) fileInput.value = '';
     }
 
-    downloadJson(type: 'raw' | 'chunks' | 'excel') {
-        if (!this.response) return;
+    downloadJson(type: 'raw' | 'chunks' | 'excel', dataOverride?: any) {
+        const resp = dataOverride || this.response;
+        if (!resp) return;
 
-        if (type === 'excel' && this.response.table_export) {
-            const byteCharacters = atob(this.response.table_export);
+        if (type === 'excel' && resp.table_export) {
+            const byteCharacters = atob(resp.table_export);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
                 byteNumbers[i] = byteCharacters.charCodeAt(i);
             }
             const byteArray = new Uint8Array(byteNumbers);
             const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-            this.triggerDownload(blob, 'extracted_tables.xlsx');
+            this.triggerDownload(blob, `${resp.filename || 'extracted'}_tables.xlsx`);
             return;
         }
 
@@ -78,17 +101,22 @@ export class UploadComponent implements OnDestroy {
         let filename;
 
         if (type === 'raw') {
-            data = this.response;
-            filename = 'parsed_data_raw.json';
+            data = resp;
+            filename = `${resp.filename || 'parsed'}_raw.json`;
         } else {
-            // In a real app, 'chunks' might be a specific subset or post-processed
-            // For now, we will assume 'chunks' key in response is what we want
-            data = this.response.chunks;
-            filename = 'parsed_data_chunks.json';
+            data = resp.chunks;
+            filename = `${resp.filename || 'parsed'}_chunks.json`;
         }
 
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         this.triggerDownload(blob, filename);
+    }
+
+    downloadAllZip() {
+        if (this.batchResults.length === 0) return;
+        this.parserService.downloadZip(this.batchResults).subscribe(blob => {
+            this.triggerDownload(blob, `batch_results_${Date.now()}.zip`);
+        });
     }
 
     private triggerDownload(blob: Blob, filename: string) {
@@ -101,13 +129,20 @@ export class UploadComponent implements OnDestroy {
     }
 
     onUpload() {
+        if (this.isBatchMode) {
+            this.startBatchUpload();
+        } else {
+            this.startSingleUpload();
+        }
+    }
+
+    private startSingleUpload() {
         if (!this.selectedFile) return;
 
         this.isLoading = true;
         this.response = null;
         this.progress = 0;
 
-        // Heuristic: 1MB takes approx 5 seconds (simulated)
         const fileSizeMB = this.selectedFile.size / (1024 * 1024);
         const estimatedSeconds = Math.max(3, Math.ceil(fileSizeMB * 5));
         this.estimatedTimeRemaining = estimatedSeconds;
@@ -131,6 +166,66 @@ export class UploadComponent implements OnDestroy {
             });
     }
 
+    private startBatchUpload() {
+        if (this.selectedFiles.length === 0) return;
+
+        this.isLoading = true;
+        this.batchResults = [];
+        this.progress = 0;
+        this.totalFiles = this.selectedFiles.length;
+        this.processedCount = 0;
+
+        const totalSizeMB = this.selectedFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024);
+        const estimatedSeconds = Math.max(5, Math.ceil(totalSizeMB * 4));
+        this.estimatedTimeRemaining = estimatedSeconds;
+
+        this.startProgressSimulation(estimatedSeconds);
+
+        this.parserService.parseBatch(this.selectedFiles, this.strategy, this.isIndependentPages, this.chunkingStrategy)
+            .subscribe({
+                next: (res) => {
+                    this.isLoading = false;
+                    this.batchResults = res;
+                    this.stopProgressSimulation();
+                    this.progress = 100;
+                    this.processedCount = res.length;
+                    // Auto-select first result to show preview if possible
+                    if (res.length > 0) {
+                        this.viewBatchResult(0);
+                    }
+                },
+                error: (err) => {
+                    this.isLoading = false;
+                    this.stopProgressSimulation();
+                    console.error(err);
+                    alert('Error parsing batch');
+                }
+            });
+    }
+
+    viewBatchResult(index: number) {
+        this.response = this.batchResults[index];
+        // If it's a PDF, we might not have the URL if we didn't store it
+        // For simplicity, we assume we only preview the text/markdown in batch mode
+        // but we could match the file if needed.
+        const originalFile = this.selectedFiles.find(f => f.name === this.response?.filename);
+        if (originalFile && originalFile.type === 'application/pdf') {
+            if (this.pdfUrl) window.URL.revokeObjectURL(this.pdfUrl);
+            this.pdfUrl = window.URL.createObjectURL(originalFile);
+        } else {
+            this.pdfUrl = null;
+        }
+    }
+
+    getGlobalAnalytics() {
+        return {
+            totalFiles: this.batchResults.length,
+            totalTokens: this.batchResults.reduce((acc, r) => acc + (r.analytics?.total_tokens || 0), 0),
+            totalChunks: this.batchResults.reduce((acc, r) => acc + (r.analytics?.chunk_count || 0), 0),
+            avgComplexity: (this.batchResults.reduce((acc, r) => acc + (r.analytics?.complexity_score || 0), 0) / (this.batchResults.length || 1)).toFixed(1)
+        };
+    }
+
     getSafePdfUrl() {
         return this.pdfUrl ? this.sanitizer.bypassSecurityTrustResourceUrl(this.pdfUrl) : null;
     }
@@ -143,12 +238,8 @@ export class UploadComponent implements OnDestroy {
 
         this.progressInterval = setInterval(() => {
             currentStep++;
-
-            // Asymptotic progression up to 90%
-            const target = Math.min(90, (currentStep / steps) * 100);
+            const target = Math.min(95, (currentStep / steps) * 100);
             this.progress = target;
-
-            // Decrement time slightly slower than real time to avoid hitting 0 too early
             if (currentStep % 5 === 0 && this.estimatedTimeRemaining > 1) {
                 this.estimatedTimeRemaining--;
             }
@@ -164,6 +255,7 @@ export class UploadComponent implements OnDestroy {
 
     ngOnDestroy() {
         this.stopProgressSimulation();
+        if (this.pdfUrl) window.URL.revokeObjectURL(this.pdfUrl);
     }
 
     formatTime(seconds: number): string {
@@ -176,14 +268,10 @@ export class UploadComponent implements OnDestroy {
 
     onScrollSync(source: 'pdf' | 'md') {
         if (this.isSyncing) return;
-
         const pdf = this.pdfViewer?.nativeElement;
         const md = this.mdViewer?.nativeElement;
-
         if (!pdf || !md) return;
-
         this.isSyncing = true;
-
         if (source === 'pdf') {
             const percentage = pdf.scrollTop / (pdf.scrollHeight - pdf.clientHeight);
             md.scrollTop = percentage * (md.scrollHeight - md.clientHeight);
@@ -191,8 +279,6 @@ export class UploadComponent implements OnDestroy {
             const percentage = md.scrollTop / (md.scrollHeight - md.clientHeight);
             pdf.scrollTop = percentage * (pdf.scrollHeight - pdf.clientHeight);
         }
-
-        // Use timeout to unlock to prevent jittering
         setTimeout(() => this.isSyncing = false, 50);
     }
 }
