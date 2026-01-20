@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+pdfplumber
+docling
+pydantic
+pandas
+openpyxl
+tiktoken

@@ -1,0 +1,22 @@
+# General
+.env
+.DS_Store
+.vscode/
+
+# Frontend
+node_modules/
+dist/
+frontend/node_modules/
+frontend/dist/
+
+# Backend
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/logs/*
+!backend/logs/.gitkeep
+backend/output/*
+!backend/output/.gitkeep
+backend/venv/
+backend/__pycache__/
+venv/
+__pycache__/
