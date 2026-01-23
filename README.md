@@ -95,6 +95,5 @@ Contributions are welcome! Please open an issue or submit a pull request for any
 ## 📄 License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 =======
-# Unified-Parser
-Unified Parser is a high-performance, SaaS-ready document processing engine designed to transform unstructured PDF and DOCX files into LLM-optimized Markdown and structured JSON. Built with an "AI-First" approach, it features intelligent layout detection, semantic chunking, and real-time document analytics.
+ 
 >>>>>>> origin/main
