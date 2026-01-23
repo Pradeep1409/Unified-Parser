@@ -181,7 +181,7 @@
               <div class="h-full bg-indigo-500 transition-all duration-300 ease-out" [style.width.%]="progress"></div>
             </div>
             <div class="text-[10px] text-slate-600 text-center">
-              {{ isBatchMode ? 'Processing multi-document batch...' : 'Analyzing document structure and extracting
+              {{ isBatchMode ? 'Processing: ' + currentFilename : 'Analyzing document structure and extracting
               tokens...' }}
             </div>
           </div>

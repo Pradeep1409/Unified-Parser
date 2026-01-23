@@ -36,14 +36,22 @@ export class ParserService {
         return this.http.post<ParseResponse>(`${this.apiUrl}/parse`, formData);
     }
 
-    parseBatch(files: File[], strategy: string = 'auto', isIndependent: boolean = true, chunkingStrategy: string = 'semantic'): Observable<ParseResponse[]> {
+    parseBatch(files: File[], strategy: string = 'auto', isIndependent: boolean = true, chunkingStrategy: string = 'semantic', clientId?: string): Observable<ParseResponse[]> {
         const formData = new FormData();
         files.forEach(file => formData.append('files', file));
         formData.append('strategy', strategy);
         formData.append('is_independent_pages', isIndependent.toString());
         formData.append('chunking_strategy', chunkingStrategy);
+        if (clientId) {
+            formData.append('client_id', clientId);
+        }
 
         return this.http.post<ParseResponse[]>(`${this.apiUrl}/parse-batch`, formData);
+    }
+
+    connectToProgress(clientId: string): WebSocket {
+        const wsUrl = this.apiUrl.replace('http', 'ws');
+        return new WebSocket(`${wsUrl}/ws/${clientId}`);
     }
 
     downloadZip(results: ParseResponse[]): Observable<Blob> {

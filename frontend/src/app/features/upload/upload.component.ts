@@ -41,6 +41,9 @@ export class UploadComponent implements OnDestroy {
     // Batch specific
     processedCount: number = 0;
     totalFiles: number = 0;
+    currentFilename: string = '';
+    private socket: WebSocket | null = null;
+    private clientId: string = Math.random().toString(36).substring(7);
 
     constructor(private parserService: ParserService, private sanitizer: DomSanitizer) { }
 
@@ -179,9 +182,24 @@ export class UploadComponent implements OnDestroy {
         const estimatedSeconds = Math.max(5, Math.ceil(totalSizeMB * 4));
         this.estimatedTimeRemaining = estimatedSeconds;
 
-        this.startProgressSimulation(estimatedSeconds);
+        // For batches, we use real-time progress instead of simulation
+        // this.startProgressSimulation(estimatedSeconds);
 
-        this.parserService.parseBatch(this.selectedFiles, this.strategy, this.isIndependentPages, this.chunkingStrategy)
+        // Connect to WebSocket for real-time updates
+        this.socket = this.parserService.connectToProgress(this.clientId);
+        this.socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'progress') {
+                this.progress = data.percentage;
+                this.processedCount = data.current;
+                this.currentFilename = data.filename;
+            } else if (data.type === 'finish') {
+                this.progress = 100;
+                this.currentFilename = 'Complete';
+            }
+        };
+
+        this.parserService.parseBatch(this.selectedFiles, this.strategy, this.isIndependentPages, this.chunkingStrategy, this.clientId)
             .subscribe({
                 next: (res) => {
                     this.isLoading = false;
@@ -193,12 +211,20 @@ export class UploadComponent implements OnDestroy {
                     if (res.length > 0) {
                         this.viewBatchResult(0);
                     }
+                    if (this.socket) {
+                        this.socket.close();
+                        this.socket = null;
+                    }
                 },
                 error: (err) => {
                     this.isLoading = false;
                     this.stopProgressSimulation();
                     console.error(err);
                     alert('Error parsing batch');
+                    if (this.socket) {
+                        this.socket.close();
+                        this.socket = null;
+                    }
                 }
             });
     }
@@ -256,6 +282,7 @@ export class UploadComponent implements OnDestroy {
     ngOnDestroy() {
         this.stopProgressSimulation();
         if (this.pdfUrl) window.URL.revokeObjectURL(this.pdfUrl);
+        if (this.socket) this.socket.close();
     }
 
     formatTime(seconds: number): string {
