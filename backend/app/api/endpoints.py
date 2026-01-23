@@ -1,7 +1,7 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response, WebSocket, WebSocketDisconnect
 from app.services.parser_service import UnifiedParser
 from app.core.logger import logger
-from typing import Optional, List
+from typing import Optional, List, Dict
 import shutil
 import os
 import uuid
@@ -9,11 +9,46 @@ import time
 import json
 import io
 import zipfile
+import asyncio
 
 router = APIRouter()
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, client_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+        logger.info(f"Client {client_id} connected for progress updates")
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+            logger.info(f"Client {client_id} disconnected")
+
+    async def send_progress(self, client_id: str, message: dict):
+        if client_id in self.active_connections:
+            try:
+                await self.active_connections[client_id].send_json(message)
+            except Exception as e:
+                logger.error(f"Error sending progress to {client_id}: {e}")
+                self.disconnect(client_id)
+
+manager = ConnectionManager()
+
+@router.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await manager.connect(client_id, websocket)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(client_id)
 
 @router.post("/parse")
 async def parse_document(
@@ -70,20 +105,43 @@ async def parse_batch(
     files: List[UploadFile] = File(...),
     strategy: str = Form("auto"),
     chunking_strategy: str = Form("semantic"),
-    is_independent_pages: bool = Form(True)
+    is_independent_pages: bool = Form(True),
+    client_id: Optional[str] = Form(None)
 ):
     batch_id = str(uuid.uuid4())
-    logger.info(f"[{batch_id}] Starting batch parsing for {len(files)} files")
+    total_files = len(files)
+    logger.info(f"[{batch_id}] Starting batch parsing for {total_files} files")
     results = []
     
-    for file in files:
+    for i, file in enumerate(files):
         try:
-            # We reuse the logic for single file parsing
-            # In a production app, we would use a task queue (Celery) or asyncio.gather
-            # For simplicity and to avoid overwhelming resources, we process sequentially here
-            # But we'll add the filename to each result
+            current_progress = int(((i) / total_files) * 100)
+            if client_id:
+                await manager.send_progress(client_id, {
+                    "type": "progress",
+                    "batch_id": batch_id,
+                    "filename": file.filename,
+                    "current": i + 1,
+                    "total": total_files,
+                    "percentage": current_progress,
+                    "status": "processing"
+                })
+
             res = await parse_document(file, strategy, chunking_strategy, is_independent_pages)
             results.append(res)
+            
+            # Send completion update for this file
+            if client_id:
+                await manager.send_progress(client_id, {
+                    "type": "progress",
+                    "batch_id": batch_id,
+                    "filename": file.filename,
+                    "current": i + 1,
+                    "total": total_files,
+                    "percentage": int(((i + 1) / total_files) * 100),
+                    "status": "completed"
+                })
+
         except Exception as e:
             logger.error(f"Failed to parse {file.filename} in batch: {e}")
             results.append({
@@ -92,6 +150,14 @@ async def parse_batch(
                 "markdown": "",
                 "chunks": []
             })
+            
+    if client_id:
+        await manager.send_progress(client_id, {
+            "type": "finish",
+            "batch_id": batch_id,
+            "total": total_files,
+            "status": "all_completed"
+        })
             
     return results
 
